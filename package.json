@@ -1,0 +1,19 @@
+{
+  "name": "film-hevc",
+  "version": "0.0.1",
+  "description": "",
+  "main": "film-hevc.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hehongbo/film-hevc.git"
+  },
+  "author": "Hongbo He",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/hehongbo/film-hevc/issues"
+  },
+  "homepage": "https://github.com/hehongbo/film-hevc#readme",
+  "dependencies": {
+    "hs265": "^1.0.0"
+  }
+}
