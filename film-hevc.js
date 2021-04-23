@@ -6,12 +6,12 @@ export default class FilmHEVC {
         logOutput: false
     }) {
         this.canvas = document.createElement("canvas");
-        this.imageData = [];
         this.logOutput = options.logOutput;
         this.ready = false;
         this.currentFrame = -1;
 
         let pendingYuvFrames = 0;
+        let pendingImageBitmaps = [];
         let preparingStatus = 0;
 
         let xhr = new XMLHttpRequest();
@@ -19,8 +19,20 @@ export default class FilmHEVC {
         xhr.responseType = "arraybuffer";
 
         let drawFirstFrame = () => {
-            this.canvas.getContext("2d").putImageData(this.imageData[0], 0, 0);
+            pendingImageBitmaps[0].then(resolvedResult => {
+                this.canvas.getContext("2d").drawImage(resolvedResult, 0, 0);
+            });
             this.currentFrame = 0;
+        };
+
+        let finalize = () => {
+            this.frameCount = pendingImageBitmaps.length;
+            Promise.all(pendingImageBitmaps).then(resolvedResult => {
+                this.images = resolvedResult;
+            });
+            this.log("All frames prepared.");
+            preparingStatus++;
+            this.ready = true;
         };
 
         xhr.onload = () => {
@@ -46,19 +58,18 @@ export default class FilmHEVC {
                 let imageData = document.createElement("canvas")
                     .getContext("2d")
                     .createImageData(this.footageWidth, this.footageHeight);
-                image.display(imageData, b => {
-                    this.imageData.push(b);
+                image.display(imageData, convertedRGBImageData => {
+                    pendingImageBitmaps.push(createImageBitmap(convertedRGBImageData));
                     pendingYuvFrames--;
-                    this.log(`Frame ${this.imageData.length - 1} converted from YUV to RGB ImageData.`);
-                    if (this.imageData.length === 1 && options.drawFirstFrame) {
+                    this.log(`Frame ${pendingImageBitmaps.length - 1} converted from YUV.`);
+                    if (pendingImageBitmaps.length === 1 && options.drawFirstFrame) {
                         this.log("Drawing the first frame we get.");
                         drawFirstFrame();
                     }
                     if (preparingStatus === 2 && pendingYuvFrames === 0) {
                         preparingStatus++;
-                        this.log("All frames prepared.")
-                        this.ready = true;
-                        this.frameCount = this.imageData.length;
+                        this.log("All decoded YUV frames have been converted.");
+                        finalize();
                     }
                 });
                 image.free();
@@ -141,14 +152,10 @@ export default class FilmHEVC {
                     return;
                 }
             } else {
-                if (f <= this.imageData.length - 1) {
-                    this.log(`Frame ${f} is required but the footage is not entirely decoded and prepared. `, 1);
-                } else {
-                    this.log(`Frame ${f} is required which is not decoded yet.`, 2);
-                    return;
-                }
+                this.log("Operations are not allowed until the entire footage is completely decoded.", 2);
+                return;
             }
-            this.canvas.getContext("2d").putImageData(this.imageData[f], 0, 0);
+            this.canvas.getContext("2d").drawImage(this.images[f], 0, 0);
             this.currentFrame = f;
         }
         return f;
@@ -159,7 +166,7 @@ export default class FilmHEVC {
             this.drawFrame(Math.floor((this.frameCount - 1) * percentage));
             return percentage;
         } else {
-            this.log("Method seek(p) is not available until the entire footage is completely decoded.", 2);
+            this.log("Operations are not allowed until the entire footage is completely decoded.", 2);
         }
     }
 }
