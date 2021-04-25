@@ -29,10 +29,10 @@ export default class FilmHEVC {
             this.frameCount = pendingImageBitmaps.length;
             Promise.all(pendingImageBitmaps).then(resolvedResult => {
                 this.images = resolvedResult;
+                this.log("All frames prepared.");
+                preparingStatus++;
+                this.ready = true;
             });
-            this.log("All frames prepared.");
-            preparingStatus++;
-            this.ready = true;
         };
 
         xhr.onload = () => {
