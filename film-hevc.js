@@ -5,35 +5,18 @@ export default class FilmHEVC {
         drawFirstFrame: false,
         logOutput: false
     }) {
+        this.images = [];
         this.canvas = document.createElement("canvas");
         this.logOutput = options.logOutput;
         this.ready = false;
         this.currentFrame = -1;
 
         let pendingYuvFrames = 0;
-        let pendingImageBitmaps = [];
         let preparingStatus = 0;
 
         let xhr = new XMLHttpRequest();
         xhr.open("GET", url, true);
         xhr.responseType = "arraybuffer";
-
-        let drawFirstFrame = () => {
-            pendingImageBitmaps[0].then(resolvedResult => {
-                this.canvas.getContext("2d").drawImage(resolvedResult, 0, 0);
-            });
-            this.currentFrame = 0;
-        };
-
-        let finalize = () => {
-            this.frameCount = pendingImageBitmaps.length;
-            Promise.all(pendingImageBitmaps).then(resolvedResult => {
-                this.images = resolvedResult;
-                this.log("All frames prepared.");
-                preparingStatus++;
-                this.ready = true;
-            });
-        };
 
         xhr.onload = () => {
             let decoder = new libde265.Decoder();
@@ -59,18 +42,22 @@ export default class FilmHEVC {
                     .getContext("2d")
                     .createImageData(this.footageWidth, this.footageHeight);
                 image.display(imageData, convertedRGBImageData => {
-                    pendingImageBitmaps.push(createImageBitmap(convertedRGBImageData));
-                    pendingYuvFrames--;
-                    this.log(`Frame ${pendingImageBitmaps.length - 1} converted from YUV.`);
-                    if (pendingImageBitmaps.length === 1 && options.drawFirstFrame) {
-                        this.log("Drawing the first frame we get.");
-                        drawFirstFrame();
-                    }
-                    if (preparingStatus === 2 && pendingYuvFrames === 0) {
-                        preparingStatus++;
-                        this.log("All decoded YUV frames have been converted.");
-                        finalize();
-                    }
+                    createImageBitmap(convertedRGBImageData).then(convertedImageBitmap => {
+                        this.images.push(convertedImageBitmap);
+                        pendingYuvFrames--;
+                        this.log(`Frame ${this.images.length - 1} converted from YUV to ImageBitmap.`);
+                        if (this.images.length === 1 && options.drawFirstFrame) {
+                            this.log("Drawing the first frame we get.");
+                            this.canvas.getContext("2d").drawImage(this.images[0], 0, 0);
+                            this.currentFrame = 0;
+                        }
+                        if (preparingStatus === 2 && pendingYuvFrames === 0) {
+                            preparingStatus++;
+                            this.log("All decoded YUV frames have been converted.");
+                            this.frameCount = this.images.length;
+                            this.ready = true;
+                        }
+                    });
                 });
                 image.free();
             });
@@ -152,8 +139,12 @@ export default class FilmHEVC {
                     return;
                 }
             } else {
-                this.log("Operations are not allowed until the entire footage is completely decoded.", 2);
-                return;
+                if (f <= this.images.length - 1) {
+                    this.log(`Frame ${f} is required but the footage is not entirely decoded and prepared. `, 1);
+                } else {
+                    this.log(`Frame ${f} is required which is not ready yet.`, 2);
+                    return;
+                }
             }
             this.canvas.getContext("2d").drawImage(this.images[f], 0, 0);
             this.currentFrame = f;
@@ -166,7 +157,7 @@ export default class FilmHEVC {
             this.drawFrame(Math.floor((this.frameCount - 1) * percentage));
             return percentage;
         } else {
-            this.log("Operations are not allowed until the entire footage is completely decoded.", 2);
+            this.log("Method seek() is not available until the entire footage is completely decoded.", 2);
         }
     }
 }
