@@ -95,6 +95,7 @@ export default class FilmHEVC {
                         }
                         if (!libde265.de265_isOK(err)) {
                             this.log(`Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2);
+                            reject(new Error("LIBDE265_ERROR"));
                             return;
                         }
 
@@ -109,6 +110,7 @@ export default class FilmHEVC {
                                         this.log(
                                             `Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2
                                         );
+                                        reject(new Error("LIBDE265_ERROR"));
                                         return;
                                     }
                             }
