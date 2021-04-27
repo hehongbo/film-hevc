@@ -1,117 +1,139 @@
 import libde265 from "hs265";
 
 export default class FilmHEVC {
-    constructor(url, selectorTarget, options = {
-        drawFirstFrame: false,
-        logOutput: false
-    }) {
-        this.images = [];
+    constructor(url, selectorTarget, onCreate = {
+        runDecode: false,
+        drawFirstFrame: false
+    }, verbose = false) {
+        this.url = url;
         this.canvas = document.createElement("canvas");
-        this.logOutput = options.logOutput;
+        this.images = [];
+        this.status = 0;
         this.ready = false;
         this.currentFrame = -1;
+        this.logOutput = verbose;
 
-        let pendingYuvFrames = 0;
-        let preparingStatus = 0;
+        document.querySelector(selectorTarget).appendChild(this.canvas);
 
-        let xhr = new XMLHttpRequest();
-        xhr.open("GET", url, true);
-        xhr.responseType = "arraybuffer";
+        if (onCreate.runDecode) {
+            this.runDecode(onCreate.drawFirstFrame).then();
+        }
+    }
 
-        xhr.onload = () => {
-            let decoder = new libde265.Decoder();
+    runDecode(drawFirstFrame = false) {
+        return new Promise((resolve, reject) => {
+            if (this.status === 0) {
+                this.status++;
 
-            decoder.set_image_callback(image => {
-                this.log("Got a decoded frame.");
-                pendingYuvFrames++;
-                if (preparingStatus === 0) {
-                    this.footageWidth = image.get_width();
-                    this.footageHeight = image.get_height();
-                    this.log(`First frame arrived, initialize the canvas with w=${
-                        this.footageWidth
-                    }, h=${
-                        this.footageHeight
-                    }.`);
-                    this.canvas.width = this.footageWidth;
-                    this.canvas.height = this.footageHeight;
-                    document.querySelector(selectorTarget).appendChild(this.canvas);
-                    preparingStatus++;
-                }
+                let pendingYuvFrames = 0;
 
-                let imageData = document.createElement("canvas")
-                    .getContext("2d")
-                    .createImageData(this.footageWidth, this.footageHeight);
-                image.display(imageData, convertedRGBImageData => {
-                    createImageBitmap(convertedRGBImageData).then(convertedImageBitmap => {
-                        this.images.push(convertedImageBitmap);
-                        pendingYuvFrames--;
-                        this.log(`Frame ${this.images.length - 1} converted from YUV to ImageBitmap.`);
-                        if (this.images.length === 1 && options.drawFirstFrame) {
-                            this.log("Drawing the first frame we get.");
-                            this.canvas.getContext("2d").drawImage(this.images[0], 0, 0);
-                            this.currentFrame = 0;
+                let xhr = new XMLHttpRequest();
+                xhr.open("GET", this.url, true);
+                xhr.responseType = "arraybuffer";
+
+                xhr.onload = () => {
+                    let decoder = new libde265.Decoder();
+
+                    decoder.set_image_callback(image => {
+                        this.log("Got a decoded frame.");
+                        pendingYuvFrames++;
+                        if (this.status === 1) {
+                            this.footageWidth = image.get_width();
+                            this.footageHeight = image.get_height();
+                            this.log(`First frame arrived, initialize the canvas with w=${
+                                this.footageWidth
+                            }, h=${
+                                this.footageHeight
+                            }.`);
+                            this.canvas.width = this.footageWidth;
+                            this.canvas.height = this.footageHeight;
+                            this.status++;
                         }
-                        if (preparingStatus === 2 && pendingYuvFrames === 0) {
-                            preparingStatus++;
-                            this.log("All decoded YUV frames have been converted.");
-                            this.frameCount = this.images.length;
-                            this.ready = true;
-                        }
+
+                        let imageData = document.createElement("canvas")
+                            .getContext("2d")
+                            .createImageData(this.footageWidth, this.footageHeight);
+                        image.display(imageData, convertedRGBImageData => {
+                            createImageBitmap(convertedRGBImageData).then(convertedImageBitmap => {
+                                this.images.push(convertedImageBitmap);
+                                pendingYuvFrames--;
+                                this.log(`Frame ${this.images.length - 1} converted from YUV to ImageBitmap.`);
+                                if (this.images.length === 1 && drawFirstFrame) {
+                                    this.log("Drawing the first frame we get.");
+                                    this.canvas.getContext("2d").drawImage(this.images[0], 0, 0);
+                                    this.currentFrame = 0;
+                                }
+                                if (this.status === 3 && pendingYuvFrames === 0) {
+                                    this.status++;
+                                    this.log("All decoded YUV frames have been converted.");
+                                    this.frameCount = this.images.length;
+                                    this.ready = true;
+                                    resolve();
+                                }
+                            });
+                        });
+                        image.free();
                     });
-                });
-                image.free();
-            });
 
-            let data = xhr.response;
-            let position = 0;
-            let remaining = data.byteLength;
+                    let data = xhr.response;
+                    let position = 0;
+                    let remaining = data.byteLength;
 
-            let runDecode = () => {
-                let err;
-                if (remaining === 0) {
-                    // this.log("End of stream, flushing data.");
-                    err = decoder.flush();
-                } else {
-                    let length = remaining < 4096 ? remaining : 4096;
-                    this.log(`Pushing ${length} bytes of data to the decoder. (${position} bytes already sent)`);
-                    err = decoder.push_data(new Uint8Array(data, position, length));
-                    position += length;
-                    remaining -= length;
-                }
-                if (!libde265.de265_isOK(err)) {
-                    this.log(`Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2);
-                    return;
-                }
-
-                decoder.decode(err => {
-                    switch (err) {
-                        case libde265.DE265_ERROR_WAITING_FOR_INPUT_DATA:
-                            this.log("libde265 is still waiting for input data.");
-                            setTimeout(runDecode, 0);
+                    let runDecode = () => {
+                        let err;
+                        if (remaining === 0) {
+                            // this.log("End of stream, flushing data.");
+                            err = decoder.flush();
+                        } else {
+                            let length = remaining < 4096 ? remaining : 4096;
+                            this.log(
+                                `Pushing ${length} bytes of data to the decoder. (${position} bytes already sent)`
+                            );
+                            err = decoder.push_data(new Uint8Array(data, position, length));
+                            position += length;
+                            remaining -= length;
+                        }
+                        if (!libde265.de265_isOK(err)) {
+                            this.log(`Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2);
                             return;
-                        default:
-                            if (!libde265.de265_isOK(err)) {
-                                this.log(`Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2);
-                                return;
-                            }
-                    }
+                        }
 
-                    if (remaining > 0) {
-                        setTimeout(runDecode, 0);
-                    } else if (decoder.has_more()) {
-                        this.log("All data pushed but the decoder has more frames to decode.");
-                        setTimeout(runDecode, 0);
-                    } else {
-                        this.log("All frames have been decoded, freeing the decoder.");
-                        preparingStatus++;
-                        decoder.free();
-                    }
-                });
-            };
-            this.log("Start decoding.");
-            setTimeout(runDecode, 0);
-        };
-        xhr.send();
+                        decoder.decode(err => {
+                            switch (err) {
+                                case libde265.DE265_ERROR_WAITING_FOR_INPUT_DATA:
+                                    this.log("libde265 is still waiting for input data.");
+                                    setTimeout(runDecode, 0);
+                                    return;
+                                default:
+                                    if (!libde265.de265_isOK(err)) {
+                                        this.log(
+                                            `Got an error from libde265: ${libde265.de265_get_error_text(err)}`, 2
+                                        );
+                                        return;
+                                    }
+                            }
+
+                            if (remaining > 0) {
+                                setTimeout(runDecode, 0);
+                            } else if (decoder.has_more()) {
+                                this.log("All data pushed but the decoder has more frames to decode.");
+                                setTimeout(runDecode, 0);
+                            } else {
+                                this.log("All frames have been decoded, freeing the decoder.");
+                                this.status++;
+                                decoder.free();
+                            }
+                        });
+                    };
+                    this.log("Start decoding.");
+                    setTimeout(runDecode, 0);
+                };
+                xhr.send();
+            } else {
+                this.log("The decoder has already been fired.", 2);
+                reject(new Error("ALREADY_DECODED"));
+            }
+        });
     }
 
     log(message, level = 0) {
